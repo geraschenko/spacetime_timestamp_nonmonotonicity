@@ -4,7 +4,7 @@ This repository demonstrates that `ctx.timestamp` in SpacetimeDB reducers is **n
 
 ## The Problem
 
-**Important:** This issue only manifests when there are **multiple concurrent connections** sending reducer calls. A single connection sending requests sequentially will not experience this problem because its requests are processed in order. However, any real-world application with multiple users will have multiple concurrent connections.
+**Important:** This issue only manifests when there are **multiple concurrent connections** sending reducer calls. A single connection sending requests sequentially will not experience this problem because its requests are processed in order. However, any real-world application with multiple users will have multiple concurrent connections. The example in this repo has 10 concurrent connections sending 100 messages each.
 
 When multiple clients send reducer calls concurrently, the timestamps assigned to those calls can:
 
