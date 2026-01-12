@@ -7,10 +7,14 @@
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 pub mod insert_row_reducer;
+pub mod last_timestamp_table;
+pub mod last_timestamp_type;
 pub mod my_table_table;
 pub mod my_table_type;
 
 pub use insert_row_reducer::{insert_row, set_flags_for_insert_row, InsertRowCallbackId};
+pub use last_timestamp_table::*;
+pub use last_timestamp_type::LastTimestamp;
 pub use my_table_table::*;
 pub use my_table_type::MyTable;
 
@@ -62,6 +66,7 @@ impl TryFrom<__ws::ReducerCallInfo<__ws::BsatnFormat>> for Reducer {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct DbUpdate {
+    last_timestamp: __sdk::TableUpdate<LastTimestamp>,
     my_table: __sdk::TableUpdate<MyTable>,
 }
 
@@ -71,6 +76,9 @@ impl TryFrom<__ws::DatabaseUpdate<__ws::BsatnFormat>> for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_update in raw.tables {
             match &table_update.table_name[..] {
+                "last_timestamp" => db_update
+                    .last_timestamp
+                    .append(last_timestamp_table::parse_table_update(table_update)?),
                 "my_table" => db_update
                     .my_table
                     .append(my_table_table::parse_table_update(table_update)?),
@@ -100,6 +108,9 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
+        diff.last_timestamp = cache
+            .apply_diff_to_table::<LastTimestamp>("last_timestamp", &self.last_timestamp)
+            .with_updates_by_pk(|row| &row.id);
         diff.my_table = cache
             .apply_diff_to_table::<MyTable>("my_table", &self.my_table)
             .with_updates_by_pk(|row| &row.ts);
@@ -112,6 +123,7 @@ impl __sdk::DbUpdate for DbUpdate {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
+    last_timestamp: __sdk::TableAppliedDiff<'r, LastTimestamp>,
     my_table: __sdk::TableAppliedDiff<'r, MyTable>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
@@ -126,6 +138,11 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         event: &EventContext,
         callbacks: &mut __sdk::DbCallbacks<RemoteModule>,
     ) {
+        callbacks.invoke_table_row_callbacks::<LastTimestamp>(
+            "last_timestamp",
+            &self.last_timestamp,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<MyTable>("my_table", &self.my_table, event);
     }
 }
@@ -846,6 +863,7 @@ impl __sdk::SpacetimeModule for RemoteModule {
     type SubscriptionHandle = SubscriptionHandle;
 
     fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
+        last_timestamp_table::register_table(client_cache);
         my_table_table::register_table(client_cache);
     }
 }
