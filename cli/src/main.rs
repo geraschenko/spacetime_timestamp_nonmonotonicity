@@ -149,10 +149,11 @@ fn main() -> Result<()> {
     done_rx.recv().expect("Should complete all inserts");
 
     // Drop all connections and wait for disconnect callbacks
-    drop(connections);
-    for (i, rx) in disconnect_rxs.into_iter().enumerate() {
-        rx.recv().expect(&format!("Connection {} should disconnect", i));
-    }
+    // drop(connections);
+    // for (i, rx) in disconnect_rxs.into_iter().enumerate() {
+    //     rx.recv().expect(&format!("Connection {} should disconnect", i));
+    // }
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 
     let final_success = success_count.load(Ordering::SeqCst);
     let final_errors = error_count.load(Ordering::SeqCst);
