@@ -34,11 +34,14 @@ fn main() -> Result<()> {
 
     let mut connections = Vec::new();
     let mut connect_rxs = Vec::new();
+    let mut disconnect_rxs = Vec::new();
 
     // Create all connections
     for i in 0..CONNECTION_COUNT {
         let (connect_tx, connect_rx) = mpsc::sync_channel(1);
+        let (disconnect_tx, disconnect_rx) = mpsc::sync_channel::<()>(1);
         connect_rxs.push(connect_rx);
+        disconnect_rxs.push(disconnect_rx);
 
         let success_count = Arc::clone(&success_count);
         let error_count = Arc::clone(&error_count);
@@ -79,14 +82,19 @@ fn main() -> Result<()> {
                     }
                 });
 
-                // Subscribe to the table
+                // Subscribe to the table and wait for subscription to be applied
                 ctx.subscription_builder()
+                    .on_applied(move |_ctx| {
+                        // Subscription is now fully established with initial sync complete
+                        let _ = connect_tx.send(());
+                    })
                     .subscribe(["SELECT * FROM my_table"]);
-
-                let _ = connect_tx.send(());
             })
             .on_connect_error(move |_ctx, err| {
                 panic!("Connection {} error: {:?}", i, err);
+            })
+            .on_disconnect(move |_ctx, _err| {
+                let _ = disconnect_tx.send(());
             })
             .build()?;
 
@@ -99,9 +107,6 @@ fn main() -> Result<()> {
             match &ctx.event.status {
                 Status::Committed => {
                     let count = success_count2.fetch_add(1, Ordering::SeqCst) + 1;
-                    if count % 1000 == 0 {
-                        println!("Inserted {} rows...", count);
-                    }
                     if count + error_count2.load(Ordering::SeqCst) >= TOTAL_MESSAGES {
                         let _ = done_tx2.send(());
                     }
@@ -124,12 +129,12 @@ fn main() -> Result<()> {
         connections.push(conn);
     }
 
-    // Wait for all connections to be established
-    println!("Waiting for {} connections to establish...", CONNECTION_COUNT);
+    // Wait for all connections and subscriptions to be established
+    println!("Waiting for {} connections and subscriptions to be ready...", CONNECTION_COUNT);
     for (i, rx) in connect_rxs.into_iter().enumerate() {
-        rx.recv().expect(&format!("Connection {} should connect", i));
+        rx.recv().expect(&format!("Connection {} subscription should be applied", i));
     }
-    println!("All connections established!");
+    println!("All connections and subscriptions ready!");
 
     // Send messages from all connections concurrently
     println!("Sending {} messages per connection...", MESSAGES_PER_CONNECTION);
@@ -143,8 +148,11 @@ fn main() -> Result<()> {
     println!("Waiting for all callbacks...");
     done_rx.recv().expect("Should complete all inserts");
 
-    // Give a moment for subscription callbacks to finish
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Drop all connections and wait for disconnect callbacks
+    drop(connections);
+    for (i, rx) in disconnect_rxs.into_iter().enumerate() {
+        rx.recv().expect(&format!("Connection {} should disconnect", i));
+    }
 
     let final_success = success_count.load(Ordering::SeqCst);
     let final_errors = error_count.load(Ordering::SeqCst);
